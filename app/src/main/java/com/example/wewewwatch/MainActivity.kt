@@ -40,11 +40,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,8 +60,13 @@ import com.example.wewewwatch.data.MovieRepository
 import com.example.wewewwatch.data.SearchMovie
 import com.example.wewewwatch.data.WatchMovie
 import com.example.wewewwatch.ui.theme.WEWEWWATCHTheme
+import com.example.wewewwatch.ui.viewmodel.MovieListUiState
+import com.example.wewewwatch.ui.viewmodel.MovieListViewModel
+import com.example.wewewwatch.ui.viewmodel.SearchUiState
+import com.example.wewewwatch.ui.viewmodel.SearchViewModel
+import com.example.wewewwatch.ui.viewmodel.WeWatchViewModelFactory
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URL
 
@@ -84,15 +88,15 @@ private fun WeWatchApp() {
     val repository = remember {
         MovieRepository(AppDatabase.getInstance(context.applicationContext).movieDao())
     }
-    val scope = rememberCoroutineScope()
+    val viewModelFactory = remember(repository) { WeWatchViewModelFactory(repository) }
+    val movieListViewModel: MovieListViewModel = viewModel(factory = viewModelFactory)
+    val searchViewModel: SearchViewModel = viewModel(factory = viewModelFactory)
     var route by remember { mutableStateOf<AppRoute>(AppRoute.Main) }
     var selectedMovie by remember { mutableStateOf<SearchMovie?>(null) }
-    var refreshKey by remember { mutableStateOf(0) }
 
     when (val currentRoute = route) {
         AppRoute.Main -> MainScreen(
-            repository = repository,
-            refreshKey = refreshKey,
+            viewModel = movieListViewModel,
             onAddClick = {
                 selectedMovie = null
                 route = AppRoute.Add
@@ -106,11 +110,7 @@ private fun WeWatchApp() {
                 route = AppRoute.Search(title.trim(), year.trim())
             },
             onAddMovie = { movie ->
-                scope.launch {
-                    withContext(Dispatchers.IO) {
-                        repository.addMovie(movie)
-                    }
-                    refreshKey++
+                movieListViewModel.addMovie(movie) {
                     route = AppRoute.Main
                 }
             },
@@ -119,7 +119,7 @@ private fun WeWatchApp() {
         is AppRoute.Search -> SearchScreen(
             query = currentRoute.query,
             year = currentRoute.year,
-            repository = repository,
+            viewModel = searchViewModel,
             onBack = { route = AppRoute.Add },
             onMovieSelected = { movie ->
                 selectedMovie = movie
@@ -138,20 +138,10 @@ private sealed interface AppRoute {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
-    repository: MovieRepository,
-    refreshKey: Int,
+    viewModel: MovieListViewModel,
     onAddClick: () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
-    var movies by remember { mutableStateOf(emptyList<WatchMovie>()) }
-    val markedIds = remember { mutableStateListOf<String>() }
-
-    LaunchedEffect(refreshKey) {
-        repository.observeWatchList().collect { storedMovies ->
-            movies = storedMovies
-            markedIds.removeAll { markedId -> storedMovies.none { it.imdbId == markedId } }
-        }
-    }
+    val uiState by viewModel.uiState.collectAsState()
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -160,15 +150,8 @@ fun MainScreen(
                 title = { Text("WeWatch") },
                 actions = {
                     Button(
-                        enabled = markedIds.isNotEmpty(),
-                        onClick = {
-                            scope.launch {
-                                withContext(Dispatchers.IO) {
-                                    repository.deleteMovies(markedIds.toSet())
-                                }
-                                markedIds.clear()
-                            }
-                        },
+                        enabled = uiState.markedIds.isNotEmpty(),
+                        onClick = viewModel::deleteMarkedMovies,
                     ) {
                         Text("Delete")
                     }
@@ -184,7 +167,7 @@ fun MainScreen(
             }
         },
     ) { innerPadding ->
-        if (movies.isEmpty()) {
+        if (uiState.movies.isEmpty()) {
             EmptyWatchList(
                 modifier = Modifier
                     .padding(innerPadding)
@@ -192,15 +175,8 @@ fun MainScreen(
             )
         } else {
             MovieWatchList(
-                movies = movies,
-                markedIds = markedIds,
-                onMarkedChange = { imdbId, checked ->
-                    if (checked) {
-                        if (!markedIds.contains(imdbId)) markedIds.add(imdbId)
-                    } else {
-                        markedIds.remove(imdbId)
-                    }
-                },
+                uiState = uiState,
+                onMarkedChange = viewModel::setMovieMarked,
                 modifier = Modifier
                     .padding(innerPadding)
                     .fillMaxSize(),
@@ -300,24 +276,14 @@ private fun AddScreen(
 private fun SearchScreen(
     query: String,
     year: String,
-    repository: MovieRepository,
+    viewModel: SearchViewModel,
     onBack: () -> Unit,
     onMovieSelected: (SearchMovie) -> Unit,
 ) {
-    var isLoading by remember(query, year) { mutableStateOf(true) }
-    var errorMessage by remember(query, year) { mutableStateOf<String?>(null) }
-    var movies by remember(query, year) { mutableStateOf(emptyList<SearchMovie>()) }
+    val uiState by viewModel.uiState.collectAsState()
 
     LaunchedEffect(query, year) {
-        isLoading = true
-        errorMessage = null
-        val result = withContext(Dispatchers.IO) {
-            runCatching { repository.searchMovies(query, year).getOrThrow() }
-        }
-        result
-            .onSuccess { movies = it }
-            .onFailure { errorMessage = it.message ?: "Search failed" }
-        isLoading = false
+        viewModel.search(query, year)
     }
 
     Scaffold(
@@ -339,11 +305,11 @@ private fun SearchScreen(
             contentAlignment = Alignment.Center,
         ) {
             when {
-                isLoading -> CircularProgressIndicator()
-                errorMessage != null -> SearchMessage(errorMessage.orEmpty())
-                movies.isEmpty() -> SearchMessage("No movies found")
+                uiState.isLoading -> CircularProgressIndicator()
+                uiState.errorMessage != null -> SearchMessage(uiState.errorMessage.orEmpty())
+                uiState.movies.isEmpty() -> SearchMessage("No movies found")
                 else -> SearchMovieList(
-                    movies = movies,
+                    movies = uiState.movies,
                     onMovieSelected = onMovieSelected,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -473,8 +439,7 @@ private fun EmptyFrameIcon() {
 
 @Composable
 private fun MovieWatchList(
-    movies: List<WatchMovie>,
-    markedIds: List<String>,
+    uiState: MovieListUiState,
     onMarkedChange: (String, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -482,10 +447,10 @@ private fun MovieWatchList(
         modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        items(movies, key = { it.imdbId }) { movie ->
+        items(uiState.movies, key = { it.imdbId }) { movie ->
             WatchMovieItem(
                 movie = movie,
-                checked = markedIds.contains(movie.imdbId),
+                checked = uiState.markedIds.contains(movie.imdbId),
                 onCheckedChange = { onMarkedChange(movie.imdbId, it) },
             )
         }
