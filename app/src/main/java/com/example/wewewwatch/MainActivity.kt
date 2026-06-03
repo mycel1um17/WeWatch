@@ -1,9 +1,12 @@
 package com.example.wewewwatch
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +50,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -59,6 +64,7 @@ import com.example.wewewwatch.ui.theme.WEWEWWATCHTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.URL
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -253,7 +259,8 @@ private fun AddScreen(
                 singleLine = true,
             )
             if (selectedMovie != null) {
-                PosterPlaceholder(
+                MoviePoster(
+                    posterUrl = selectedMovie.posterUrl,
                     modifier = Modifier
                         .size(width = 132.dp, height = 190.dp)
                         .align(Alignment.CenterHorizontally),
@@ -393,7 +400,7 @@ private fun SearchMovieItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            PosterPlaceholder()
+            MoviePoster(posterUrl = movie.posterUrl)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = movie.title,
@@ -504,7 +511,7 @@ private fun WatchMovieItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            PosterPlaceholder()
+            MoviePoster(posterUrl = movie.posterUrl)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = movie.title,
@@ -522,6 +529,39 @@ private fun WatchMovieItem(
                 onCheckedChange = onCheckedChange,
             )
         }
+    }
+}
+
+@Composable
+private fun MoviePoster(
+    posterUrl: String,
+    modifier: Modifier = Modifier.size(width = 54.dp, height = 78.dp),
+) {
+    var bitmap by remember(posterUrl) { mutableStateOf<Bitmap?>(null) }
+    val canLoadPoster = posterUrl.isNotBlank() && posterUrl != "N/A"
+
+    LaunchedEffect(posterUrl) {
+        bitmap = null
+        if (canLoadPoster) {
+            bitmap = withContext(Dispatchers.IO) {
+                runCatching {
+                    URL(posterUrl).openStream().use { input ->
+                        BitmapFactory.decodeStream(input)
+                    }
+                }.getOrNull()
+            }
+        }
+    }
+
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap!!.asImageBitmap(),
+            contentDescription = null,
+            modifier = modifier.clip(RoundedCornerShape(6.dp)),
+            contentScale = ContentScale.Crop,
+        )
+    } else {
+        PosterPlaceholder(modifier = modifier)
     }
 }
 
