@@ -56,10 +56,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.wewewwatch.data.MovieDatabaseHelper
+import com.example.wewewwatch.data.AppDatabase
+import com.example.wewewwatch.data.MovieDao
 import com.example.wewewwatch.data.OmdbClient
 import com.example.wewewwatch.data.SearchMovie
 import com.example.wewewwatch.data.WatchMovie
+import com.example.wewewwatch.data.toWatchMovie
 import com.example.wewewwatch.ui.theme.WEWEWWATCHTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -81,7 +83,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun WeWatchApp() {
     val context = LocalContext.current
-    val database = remember { MovieDatabaseHelper(context.applicationContext) }
+    val movieDao = remember { AppDatabase.getInstance(context.applicationContext).movieDao() }
     val scope = rememberCoroutineScope()
     var route by remember { mutableStateOf<AppRoute>(AppRoute.Main) }
     var selectedMovie by remember { mutableStateOf<SearchMovie?>(null) }
@@ -89,7 +91,7 @@ private fun WeWatchApp() {
 
     when (val currentRoute = route) {
         AppRoute.Main -> MainScreen(
-            database = database,
+            movieDao = movieDao,
             refreshKey = refreshKey,
             onAddClick = {
                 selectedMovie = null
@@ -106,7 +108,7 @@ private fun WeWatchApp() {
             onAddMovie = { movie ->
                 scope.launch {
                     withContext(Dispatchers.IO) {
-                        database.addMovie(movie)
+                        movieDao.addMovie(movie.toWatchMovie())
                     }
                     refreshKey++
                     route = AppRoute.Main
@@ -135,7 +137,7 @@ private sealed interface AppRoute {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
-    database: MovieDatabaseHelper,
+    movieDao: MovieDao,
     refreshKey: Int,
     onAddClick: () -> Unit,
 ) {
@@ -143,15 +145,11 @@ fun MainScreen(
     var movies by remember { mutableStateOf(emptyList<WatchMovie>()) }
     val markedIds = remember { mutableStateListOf<String>() }
 
-    fun refreshMovies() {
-        scope.launch {
-            movies = withContext(Dispatchers.IO) { database.getMovies() }
-            markedIds.removeAll { markedId -> movies.none { it.imdbId == markedId } }
-        }
-    }
-
     LaunchedEffect(refreshKey) {
-        movies = withContext(Dispatchers.IO) { database.getMovies() }
+        movieDao.observeMovies().collect { storedMovies ->
+            movies = storedMovies
+            markedIds.removeAll { markedId -> storedMovies.none { it.imdbId == markedId } }
+        }
     }
 
     Scaffold(
@@ -165,10 +163,9 @@ fun MainScreen(
                         onClick = {
                             scope.launch {
                                 withContext(Dispatchers.IO) {
-                                    database.deleteMovies(markedIds.toSet())
+                                    movieDao.deleteMovies(markedIds.toSet())
                                 }
                                 markedIds.clear()
-                                refreshMovies()
                             }
                         },
                     ) {
