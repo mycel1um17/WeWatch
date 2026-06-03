@@ -27,8 +27,11 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.wewewwatch.data.MovieDatabaseHelper
+import com.example.wewewwatch.data.SearchMovie
 import com.example.wewewwatch.data.WatchMovie
 import com.example.wewewwatch.ui.theme.WEWEWWATCHTheme
 import kotlinx.coroutines.Dispatchers
@@ -67,14 +71,58 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun WeWatchApp() {
-    MainScreen()
+    val context = LocalContext.current
+    val database = remember { MovieDatabaseHelper(context.applicationContext) }
+    val scope = rememberCoroutineScope()
+    var route by remember { mutableStateOf(AppRoute.Main) }
+    var selectedMovie by remember { mutableStateOf<SearchMovie?>(null) }
+    var refreshKey by remember { mutableStateOf(0) }
+
+    when (route) {
+        AppRoute.Main -> MainScreen(
+            database = database,
+            refreshKey = refreshKey,
+            onAddClick = {
+                selectedMovie = null
+                route = AppRoute.Add
+            },
+        )
+
+        AppRoute.Add -> AddScreen(
+            selectedMovie = selectedMovie,
+            onBack = { route = AppRoute.Main },
+            onSearchClick = { title, year ->
+                selectedMovie = SearchMovie(
+                    imdbId = "manual-${title.trim().lowercase()}-${year.trim()}",
+                    title = title.trim(),
+                    year = year.trim(),
+                )
+            },
+            onAddMovie = { movie ->
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        database.addMovie(movie)
+                    }
+                    refreshKey++
+                    route = AppRoute.Main
+                }
+            },
+        )
+    }
+}
+
+private enum class AppRoute {
+    Main,
+    Add,
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen() {
-    val context = LocalContext.current
-    val database = remember { MovieDatabaseHelper(context.applicationContext) }
+fun MainScreen(
+    database: MovieDatabaseHelper,
+    refreshKey: Int,
+    onAddClick: () -> Unit,
+) {
     val scope = rememberCoroutineScope()
     var movies by remember { mutableStateOf(emptyList<WatchMovie>()) }
     val markedIds = remember { mutableStateListOf<String>() }
@@ -86,7 +134,7 @@ fun MainScreen() {
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(refreshKey) {
         movies = withContext(Dispatchers.IO) { database.getMovies() }
     }
 
@@ -117,7 +165,7 @@ fun MainScreen() {
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { }) {
+            FloatingActionButton(onClick = onAddClick) {
                 Text("+", style = MaterialTheme.typography.headlineMedium)
             }
         },
@@ -143,6 +191,91 @@ fun MainScreen() {
                     .padding(innerPadding)
                     .fillMaxSize(),
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddScreen(
+    selectedMovie: SearchMovie?,
+    onBack: () -> Unit,
+    onSearchClick: (String, String) -> Unit,
+    onAddMovie: (SearchMovie) -> Unit,
+) {
+    var title by remember(selectedMovie) { mutableStateOf(selectedMovie?.title.orEmpty()) }
+    var year by remember(selectedMovie) { mutableStateOf(selectedMovie?.year.orEmpty()) }
+    val canSearch = title.isNotBlank()
+    val canAdd = title.isNotBlank() && year.isNotBlank()
+
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("Add movie") },
+                navigationIcon = {
+                    TextButton(onClick = onBack) {
+                        Text("Back")
+                    }
+                },
+            )
+        },
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .padding(innerPadding)
+                .padding(20.dp)
+                .fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Movie title") },
+                singleLine = true,
+                isError = title.isBlank(),
+            )
+            OutlinedTextField(
+                value = year,
+                onValueChange = { year = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Release year") },
+                singleLine = true,
+            )
+            if (selectedMovie != null) {
+                PosterPlaceholder(
+                    modifier = Modifier
+                        .size(width = 132.dp, height = 190.dp)
+                        .align(Alignment.CenterHorizontally),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedButton(
+                    enabled = canSearch,
+                    onClick = { onSearchClick(title, year) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Search")
+                }
+                Button(
+                    enabled = canAdd,
+                    onClick = {
+                        onAddMovie(
+                            selectedMovie ?: SearchMovie(
+                                imdbId = "manual-${title.trim().lowercase()}-${year.trim()}",
+                                title = title.trim(),
+                                year = year.trim(),
+                            ),
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Add movie")
+                }
+            }
         }
     }
 }
