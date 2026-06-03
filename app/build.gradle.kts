@@ -4,6 +4,11 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val omdbApiKey = providers
+    .gradleProperty("OMDB_API_KEY")
+    .orElse(providers.environmentVariable("OMDB_API_KEY"))
+    .orElse("")
+
 android {
     namespace = "com.example.wewewwatch"
     compileSdk {
@@ -18,6 +23,7 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "OMDB_API_KEY", "\"${omdbApiKey.get()}\"")
     }
 
     buildTypes {
@@ -38,6 +44,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
