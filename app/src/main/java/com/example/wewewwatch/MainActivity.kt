@@ -57,11 +57,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.wewewwatch.data.AppDatabase
-import com.example.wewewwatch.data.MovieDao
-import com.example.wewewwatch.data.OmdbClient
+import com.example.wewewwatch.data.MovieRepository
 import com.example.wewewwatch.data.SearchMovie
 import com.example.wewewwatch.data.WatchMovie
-import com.example.wewewwatch.data.toWatchMovie
 import com.example.wewewwatch.ui.theme.WEWEWWATCHTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -83,7 +81,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun WeWatchApp() {
     val context = LocalContext.current
-    val movieDao = remember { AppDatabase.getInstance(context.applicationContext).movieDao() }
+    val repository = remember {
+        MovieRepository(AppDatabase.getInstance(context.applicationContext).movieDao())
+    }
     val scope = rememberCoroutineScope()
     var route by remember { mutableStateOf<AppRoute>(AppRoute.Main) }
     var selectedMovie by remember { mutableStateOf<SearchMovie?>(null) }
@@ -91,7 +91,7 @@ private fun WeWatchApp() {
 
     when (val currentRoute = route) {
         AppRoute.Main -> MainScreen(
-            movieDao = movieDao,
+            repository = repository,
             refreshKey = refreshKey,
             onAddClick = {
                 selectedMovie = null
@@ -108,7 +108,7 @@ private fun WeWatchApp() {
             onAddMovie = { movie ->
                 scope.launch {
                     withContext(Dispatchers.IO) {
-                        movieDao.addMovie(movie.toWatchMovie())
+                        repository.addMovie(movie)
                     }
                     refreshKey++
                     route = AppRoute.Main
@@ -119,6 +119,7 @@ private fun WeWatchApp() {
         is AppRoute.Search -> SearchScreen(
             query = currentRoute.query,
             year = currentRoute.year,
+            repository = repository,
             onBack = { route = AppRoute.Add },
             onMovieSelected = { movie ->
                 selectedMovie = movie
@@ -137,7 +138,7 @@ private sealed interface AppRoute {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
-    movieDao: MovieDao,
+    repository: MovieRepository,
     refreshKey: Int,
     onAddClick: () -> Unit,
 ) {
@@ -146,7 +147,7 @@ fun MainScreen(
     val markedIds = remember { mutableStateListOf<String>() }
 
     LaunchedEffect(refreshKey) {
-        movieDao.observeMovies().collect { storedMovies ->
+        repository.observeWatchList().collect { storedMovies ->
             movies = storedMovies
             markedIds.removeAll { markedId -> storedMovies.none { it.imdbId == markedId } }
         }
@@ -163,7 +164,7 @@ fun MainScreen(
                         onClick = {
                             scope.launch {
                                 withContext(Dispatchers.IO) {
-                                    movieDao.deleteMovies(markedIds.toSet())
+                                    repository.deleteMovies(markedIds.toSet())
                                 }
                                 markedIds.clear()
                             }
@@ -299,10 +300,10 @@ private fun AddScreen(
 private fun SearchScreen(
     query: String,
     year: String,
+    repository: MovieRepository,
     onBack: () -> Unit,
     onMovieSelected: (SearchMovie) -> Unit,
 ) {
-    val client = remember { OmdbClient() }
     var isLoading by remember(query, year) { mutableStateOf(true) }
     var errorMessage by remember(query, year) { mutableStateOf<String?>(null) }
     var movies by remember(query, year) { mutableStateOf(emptyList<SearchMovie>()) }
@@ -311,7 +312,7 @@ private fun SearchScreen(
         isLoading = true
         errorMessage = null
         val result = withContext(Dispatchers.IO) {
-            runCatching { client.searchMovies(query, year).getOrThrow() }
+            runCatching { repository.searchMovies(query, year).getOrThrow() }
         }
         result
             .onSuccess { movies = it }
