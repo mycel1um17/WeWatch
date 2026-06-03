@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.wewewwatch.data.MovieDatabaseHelper
+import com.example.wewewwatch.data.OmdbClient
 import com.example.wewewwatch.data.SearchMovie
 import com.example.wewewwatch.data.WatchMovie
 import com.example.wewewwatch.ui.theme.WEWEWWATCHTheme
@@ -74,11 +77,11 @@ private fun WeWatchApp() {
     val context = LocalContext.current
     val database = remember { MovieDatabaseHelper(context.applicationContext) }
     val scope = rememberCoroutineScope()
-    var route by remember { mutableStateOf(AppRoute.Main) }
+    var route by remember { mutableStateOf<AppRoute>(AppRoute.Main) }
     var selectedMovie by remember { mutableStateOf<SearchMovie?>(null) }
     var refreshKey by remember { mutableStateOf(0) }
 
-    when (route) {
+    when (val currentRoute = route) {
         AppRoute.Main -> MainScreen(
             database = database,
             refreshKey = refreshKey,
@@ -92,11 +95,7 @@ private fun WeWatchApp() {
             selectedMovie = selectedMovie,
             onBack = { route = AppRoute.Main },
             onSearchClick = { title, year ->
-                selectedMovie = SearchMovie(
-                    imdbId = "manual-${title.trim().lowercase()}-${year.trim()}",
-                    title = title.trim(),
-                    year = year.trim(),
-                )
+                route = AppRoute.Search(title.trim(), year.trim())
             },
             onAddMovie = { movie ->
                 scope.launch {
@@ -108,12 +107,23 @@ private fun WeWatchApp() {
                 }
             },
         )
+
+        is AppRoute.Search -> SearchScreen(
+            query = currentRoute.query,
+            year = currentRoute.year,
+            onBack = { route = AppRoute.Add },
+            onMovieSelected = { movie ->
+                selectedMovie = movie
+                route = AppRoute.Add
+            },
+        )
     }
 }
 
-private enum class AppRoute {
-    Main,
-    Add,
+private sealed interface AppRoute {
+    data object Main : AppRoute
+    data object Add : AppRoute
+    data class Search(val query: String, val year: String) : AppRoute
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -274,6 +284,133 @@ private fun AddScreen(
                     modifier = Modifier.weight(1f),
                 ) {
                     Text("Add movie")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SearchScreen(
+    query: String,
+    year: String,
+    onBack: () -> Unit,
+    onMovieSelected: (SearchMovie) -> Unit,
+) {
+    val client = remember { OmdbClient() }
+    var isLoading by remember(query, year) { mutableStateOf(true) }
+    var errorMessage by remember(query, year) { mutableStateOf<String?>(null) }
+    var movies by remember(query, year) { mutableStateOf(emptyList<SearchMovie>()) }
+
+    LaunchedEffect(query, year) {
+        isLoading = true
+        errorMessage = null
+        val result = withContext(Dispatchers.IO) {
+            runCatching { client.searchMovies(query, year).getOrThrow() }
+        }
+        result
+            .onSuccess { movies = it }
+            .onFailure { errorMessage = it.message ?: "Search failed" }
+        isLoading = false
+    }
+
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("Search") },
+                navigationIcon = {
+                    TextButton(onClick = onBack) {
+                        Text("Back")
+                    }
+                },
+            )
+        },
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            when {
+                isLoading -> CircularProgressIndicator()
+                errorMessage != null -> SearchMessage(errorMessage.orEmpty())
+                movies.isEmpty() -> SearchMessage("No movies found")
+                else -> SearchMovieList(
+                    movies = movies,
+                    onMovieSelected = onMovieSelected,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchMessage(message: String) {
+    Text(
+        text = message,
+        modifier = Modifier.padding(24.dp),
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun SearchMovieList(
+    movies: List<SearchMovie>,
+    onMovieSelected: (SearchMovie) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        items(movies, key = { it.imdbId }) { movie ->
+            SearchMovieItem(
+                movie = movie,
+                onClick = { onMovieSelected(movie) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchMovieItem(
+    movie: SearchMovie,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            PosterPlaceholder()
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = movie.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = movie.year,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (movie.genre.isNotBlank()) {
+                    Text(
+                        text = movie.genre,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
