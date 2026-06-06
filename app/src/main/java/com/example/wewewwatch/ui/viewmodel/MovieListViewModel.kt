@@ -2,7 +2,9 @@ package com.example.wewewwatch.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.wewewwatch.data.MovieRepository
+import com.example.wewewwatch.domain.usecase.AddMovieToWatchListUseCase
+import com.example.wewewwatch.domain.usecase.DeleteMoviesUseCase
+import com.example.wewewwatch.domain.usecase.ObserveWatchListUseCase
 import com.example.wewewwatch.ui.mvi.MovieListEffect
 import com.example.wewewwatch.ui.mvi.MovieListIntent
 import com.example.wewewwatch.ui.mvi.MovieListState
@@ -15,7 +17,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class MovieListViewModel(
-    private val repository: MovieRepository,
+    private val observeWatchListUseCase: ObserveWatchListUseCase,
+    private val addMovieToWatchListUseCase: AddMovieToWatchListUseCase,
+    private val deleteMoviesUseCase: DeleteMoviesUseCase,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(MovieListState())
     val uiState: StateFlow<MovieListState> = _uiState.asStateFlow()
@@ -25,7 +29,7 @@ class MovieListViewModel(
 
     init {
         viewModelScope.launch {
-            repository.observeWatchList().collect { movies ->
+            observeWatchListUseCase().collect { movies ->
                 handleIntent(MovieListIntent.MovieLoaded(movies))
             }
         }
@@ -66,7 +70,7 @@ class MovieListViewModel(
 
     private fun addMovie(intent: MovieListIntent.AddMovie) {
         viewModelScope.launch {
-            repository.addMovie(intent.movie)
+            addMovieToWatchListUseCase(intent.movie)
             effectsChannel.send(MovieListEffect.MovieAdded)
         }
     }
@@ -76,7 +80,7 @@ class MovieListViewModel(
         if (idsToDelete.isEmpty()) return
         _uiState.update { it.copy(isDeleting = true) }
         viewModelScope.launch {
-            repository.deleteMovies(idsToDelete)
+            deleteMoviesUseCase(idsToDelete)
             _uiState.update { it.copy(markedIds = emptySet(), isDeleting = false) }
             effectsChannel.send(MovieListEffect.MoviesDeleted)
         }

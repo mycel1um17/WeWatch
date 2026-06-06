@@ -2,19 +2,17 @@ package com.example.wewewwatch.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.wewewwatch.data.MovieRepository
+import com.example.wewewwatch.domain.usecase.SearchMoviesUseCase
 import com.example.wewewwatch.ui.mvi.SearchIntent
 import com.example.wewewwatch.ui.mvi.SearchState
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class SearchViewModel(
-    private val repository: MovieRepository,
+    private val searchMoviesUseCase: SearchMoviesUseCase,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(SearchState())
     val uiState: StateFlow<SearchState> = _uiState.asStateFlow()
@@ -40,9 +38,7 @@ class SearchViewModel(
             )
         }
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching { repository.searchMovies(query, year).getOrThrow() }
-            }
+            val result = searchMoviesUseCase(query, year)
             result
                 .onSuccess { movies ->
                     handleIntent(SearchIntent.SearchSucceeded(movies))
