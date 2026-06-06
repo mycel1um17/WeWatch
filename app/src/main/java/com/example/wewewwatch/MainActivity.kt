@@ -60,9 +60,11 @@ import com.example.wewewwatch.data.MovieRepository
 import com.example.wewewwatch.data.SearchMovie
 import com.example.wewewwatch.data.WatchMovie
 import com.example.wewewwatch.ui.theme.WEWEWWATCHTheme
-import com.example.wewewwatch.ui.viewmodel.MovieListUiState
+import com.example.wewewwatch.ui.mvi.MovieListEffect
+import com.example.wewewwatch.ui.mvi.MovieListIntent
+import com.example.wewewwatch.ui.mvi.MovieListState
+import com.example.wewewwatch.ui.mvi.SearchIntent
 import com.example.wewewwatch.ui.viewmodel.MovieListViewModel
-import com.example.wewewwatch.ui.viewmodel.SearchUiState
 import com.example.wewewwatch.ui.viewmodel.SearchViewModel
 import com.example.wewewwatch.ui.viewmodel.WeWatchViewModelFactory
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -94,6 +96,19 @@ private fun WeWatchApp() {
     var route by remember { mutableStateOf<AppRoute>(AppRoute.Main) }
     var selectedMovie by remember { mutableStateOf<SearchMovie?>(null) }
 
+    LaunchedEffect(movieListViewModel) {
+        movieListViewModel.effects.collect { effect ->
+            when (effect) {
+                MovieListEffect.MovieAdded -> {
+                    selectedMovie = null
+                    route = AppRoute.Main
+                }
+
+                MovieListEffect.MoviesDeleted -> Unit
+            }
+        }
+    }
+
     when (val currentRoute = route) {
         AppRoute.Main -> MainScreen(
             viewModel = movieListViewModel,
@@ -110,9 +125,7 @@ private fun WeWatchApp() {
                 route = AppRoute.Search(title.trim(), year.trim())
             },
             onAddMovie = { movie ->
-                movieListViewModel.addMovie(movie) {
-                    route = AppRoute.Main
-                }
+                movieListViewModel.handleIntent(MovieListIntent.AddMovie(movie))
             },
         )
 
@@ -150,8 +163,10 @@ fun MainScreen(
                 title = { Text("WeWatch") },
                 actions = {
                     Button(
-                        enabled = uiState.markedIds.isNotEmpty(),
-                        onClick = viewModel::deleteMarkedMovies,
+                        enabled = uiState.markedIds.isNotEmpty() && !uiState.isDeleting,
+                        onClick = {
+                            viewModel.handleIntent(MovieListIntent.DeleteMarkedMovies)
+                        },
                     ) {
                         Text("Delete")
                     }
@@ -176,7 +191,9 @@ fun MainScreen(
         } else {
             MovieWatchList(
                 uiState = uiState,
-                onMarkedChange = viewModel::setMovieMarked,
+                onMarkedChange = { imdbId, marked ->
+                    viewModel.handleIntent(MovieListIntent.MovieMarkChanged(imdbId, marked))
+                },
                 modifier = Modifier
                     .padding(innerPadding)
                     .fillMaxSize(),
@@ -283,7 +300,7 @@ private fun SearchScreen(
     val uiState by viewModel.uiState.collectAsState()
 
     LaunchedEffect(query, year) {
-        viewModel.search(query, year)
+        viewModel.handleIntent(SearchIntent.SearchRequested(query, year))
     }
 
     Scaffold(
@@ -439,7 +456,7 @@ private fun EmptyFrameIcon() {
 
 @Composable
 private fun MovieWatchList(
-    uiState: MovieListUiState,
+    uiState: MovieListState,
     onMarkedChange: (String, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
