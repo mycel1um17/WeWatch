@@ -8,7 +8,7 @@ Android-приложение на Kotlin/Jetpack Compose для лаборато
 - AddScreen с вводом названия и года, отображением выбранного фильма и добавлением в локальную SQLite БД.
 - SearchScreen с поиском фильмов через The Open Movie Database и выбором результата.
 - Хранение выбранных фильмов в Room БД.
-- Архитектура MVVM: Compose-экраны читают состояние из ViewModel.
+- Архитектура MVI: Compose-экраны отправляют intents, читают immutable state и реагируют на effects.
 - Общий MovieRepository для доступа к OMDb и локальной базе.
 - Загрузка постеров по URL без дополнительных библиотек.
 
@@ -17,9 +17,19 @@ Android-приложение на Kotlin/Jetpack Compose для лаборато
 - `data/AppDatabase.kt`, `MovieDao.kt`, `MovieModels.kt` - локальная Room БД.
 - `data/OmdbClient.kt` - удаленный источник данных OMDb.
 - `data/MovieRepository.kt` - общий репозиторий для локальных и удаленных данных.
-- `ui/viewmodel/MovieListViewModel.kt` - состояние главного экрана и операции со списком.
-- `ui/viewmodel/SearchViewModel.kt` - состояние поиска фильмов.
+- `ui/mvi/MovieListContract.kt` - `MovieListState`, `MovieListIntent` и `MovieListEffect`.
+- `ui/mvi/SearchContract.kt` - `SearchState` и `SearchIntent`.
+- `ui/viewmodel/MovieListViewModel.kt` - MVI reducer главного экрана и одноразовые effects.
+- `ui/viewmodel/SearchViewModel.kt` - MVI reducer поиска фильмов.
 - `MainActivity.kt` - навигация и Compose UI.
+
+## MVI поток
+
+1. Пользователь выполняет действие на экране.
+2. UI отправляет intent во ViewModel.
+3. ViewModel обновляет state через reducer.
+4. UI перерисовывается из нового state.
+5. Одноразовые события, например возврат на главный экран после добавления фильма, приходят как effect.
 
 ## OMDb API key
 
