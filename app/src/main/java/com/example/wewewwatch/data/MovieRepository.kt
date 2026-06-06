@@ -1,21 +1,22 @@
 package com.example.wewewwatch.data
 
+import com.example.wewewwatch.domain.repository.MovieRepositoryContract
 import kotlinx.coroutines.flow.Flow
 
 class MovieRepository(
     private val movieDao: MovieDao,
     private val omdbClient: OmdbClient = OmdbClient(),
-) {
-    fun observeWatchList(): Flow<List<WatchMovie>> = movieDao.observeMovies()
+) : MovieRepositoryContract {
+    override fun observeWatchList(): Flow<List<WatchMovie>> = movieDao.observeMovies()
 
-    suspend fun addMovie(movie: SearchMovie) {
+    override suspend fun addMovie(movie: SearchMovie) {
         movieDao.addMovie(movie.toWatchMovie())
     }
 
-    suspend fun deleteMovies(imdbIds: Set<String>) {
+    override suspend fun deleteMovies(imdbIds: Set<String>) {
         movieDao.deleteMovies(imdbIds)
     }
 
-    fun searchMovies(query: String, year: String): Result<List<SearchMovie>> =
+    override fun searchMovies(query: String, year: String): Result<List<SearchMovie>> =
         omdbClient.searchMovies(query, year)
 }
